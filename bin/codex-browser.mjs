@@ -5,7 +5,7 @@ import process from "node:process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { registrationRoot } from "../src/registration.mjs";
-import { runRegisteredCodex } from "../src/registered-runtime.mjs";
+import { runRegisteredCodex, runUnregisteredBackend } from "../src/registered-runtime.mjs";
 import { discoverHostContext } from "../src/host-context.mjs";
 import { checkHostAuthorization } from "../src/host-authorization.mjs";
 import {
@@ -47,6 +47,9 @@ and then runs Codex CLI. It does not bundle or copy ChatGPT proprietary code.
   const configured = await fs.access(path.join(registrationRoot(), "policy.json")).then(() => true, () => false);
   if (configured) {
     try { await runRegisteredCodex(args); }
+    catch (error) { console.error(`codex-browser: ${error.message}`); process.exitCode = 1; }
+  } else if (args[0] === "app-server") {
+    try { await runUnregisteredBackend(args); }
     catch (error) { console.error(`codex-browser: ${error.message}`); process.exitCode = 1; }
   } else {
 

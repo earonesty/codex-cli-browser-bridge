@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
-import { discoverHostContext } from "./host-context.mjs";
+import os from "node:os";
+import path from "node:path";
+import { discoverHostContext, HOST_KEYS } from "./host-context.mjs";
 import { readPolicy, validatePinnedExecutable, registerSession, removeRegistration } from "./registration.mjs";
 import { prepareCodexArgs } from "./bridge.mjs";
 
@@ -23,6 +25,34 @@ export class RegistrationTracker {
 
 async function write(stream, line) {
   if (!stream.write(`${line}\n`)) await once(stream, "drain");
+}
+
+export function unregisteredEnvironment(env) {
+  const result = { ...env };
+  for (const key of HOST_KEYS) delete result[key];
+  return result;
+}
+
+/** An alternate CODEX_HOME without its own opt-in keeps a plain backend.
+ * Sharing an approved executable does not share its account or browser context.
+ */
+export async function runUnregisteredBackend(args) {
+  let executable = process.env.CODEX_BIN || "codex";
+  if (!process.env.CODEX_BIN) {
+    try {
+      const policy = await readPolicy(path.join(os.homedir(), ".codex"));
+      executable = await validatePinnedExecutable(policy.executables[0]);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  const child = spawn(executable, args, { env: unregisteredEnvironment(process.env), stdio: "inherit" });
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+  const handlers = signals.map((signal) => { const handler = () => child.kill(signal); process.on(signal, handler); return [signal, handler]; });
+  try {
+    const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code, signal) => resolve({ code, signal })); });
+    process.exitCode = result.code ?? (result.signal ? 128 : 1);
+  } finally { for (const [signal, handler] of handlers) process.removeListener(signal, handler); }
 }
 
 export async function runRegisteredCodex(args) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RegistrationTracker } from "../src/registered-runtime.mjs";
+import { RegistrationTracker, unregisteredEnvironment } from "../src/registered-runtime.mjs";
 
 test("registers a root before exposing a successful start/resume response", async () => {
   const registrations = [];
@@ -25,4 +25,10 @@ test("does not register failed requests or unrelated replies", async () => {
 test("propagates registration failure instead of exposing an unregistered thread", async () => {
   const tracker = new RegistrationTracker(async () => { throw new Error("Policy disabled"); });
   await assert.rejects(tracker.incoming({ method: "thread/started", params: { thread: { id: "root" } } }), /Policy disabled/);
+});
+
+test("an isolated backend retains its home and credentials without inheriting browser delegation", () => {
+  const result = unregisteredEnvironment({ CODEX_HOME: "/fixture/isolated", PATH: "/fixture/bin", PRIVATE_FIXTURE: "unchanged",
+    BROWSER_USE_ACCESS_PIPE_PATH: "/fixture/socket", BROWSER_USE_ACCESS_EXECUTOR_ID: "fixture-executor", BROWSER_USE_ACCESS_VERIFYING_IDENTITY: "fixture-key" });
+  assert.deepEqual(result, { CODEX_HOME: "/fixture/isolated", PATH: "/fixture/bin", PRIVATE_FIXTURE: "unchanged" });
 });

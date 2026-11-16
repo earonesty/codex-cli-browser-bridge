@@ -113,6 +113,9 @@ the lease before delivering each successful root thread start/resume response.
 Lease files are removed on process exit. The native backend remains the sole
 conversation writer. New interactive sessions currently need to be created through
 the app-server flow first; interactive `resume` accepts an explicit session UUID.
+An alternate `CODEX_HOME` without its own registration policy runs a plain
+app-server with its original environment and browser delegation removed. This
+keeps isolated agents, such as GitHub triage, separate from the primary account.
 
 ```bash
 node bin/codex-browser-patch.mjs disable
