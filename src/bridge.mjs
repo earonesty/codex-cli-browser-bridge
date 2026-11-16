@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { validateHostContext } from "./host-context.mjs";
 
 const DEFAULT_CHATGPT_BIN = "/usr/lib/chatgpt/ChatGPT";
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -77,16 +78,18 @@ async function findGeneratedMcpConfig() {
 }
 
 async function inspectMcpConfig(configPath) {
-  if (!configPath) return { enabled: false, valid: false };
+  if (!configPath) return { enabled: false, valid: false, hostAuthorizationRequired: false };
   try {
     const parsed = JSON.parse(await fs.readFile(configPath, "utf8"));
     const server = parsed?.mcpServers?.cua_repl;
     return {
       enabled: server?.enabled === true,
       valid: typeof server?.command === "string" && Array.isArray(server?.args),
+      hostAuthorizationRequired: JSON.stringify(server?.args ?? []).includes("BROWSER_USE_ACCESS_EXECUTOR_ID")
+        || JSON.stringify(server?.env ?? {}).includes("require-browser-access.mjs"),
     };
   } catch {
-    return { enabled: false, valid: false };
+    return { enabled: false, valid: false, hostAuthorizationRequired: false };
   }
 }
 
@@ -94,6 +97,7 @@ export async function bridgeStatus() {
   const chatGptBin = process.env.CHATGPT_BIN || DEFAULT_CHATGPT_BIN;
   const mcpConfig = await findGeneratedMcpConfig();
   const mcp = await inspectMcpConfig(mcpConfig);
+  const hostContextAvailable = await validateHostContext(process.env);
   return {
     platform: process.platform,
     chatGptBin,
@@ -102,12 +106,15 @@ export async function bridgeStatus() {
     mcpConfig,
     mcpEnabled: mcp.enabled,
     mcpValid: mcp.valid,
+    hostAuthorizationRequired: mcp.hostAuthorizationRequired,
+    hostContextAvailable,
     ready:
       process.platform === "linux" &&
       (await exists(chatGptBin)) &&
       (await hasBrowserSocket()) &&
       mcp.enabled &&
-      mcp.valid,
+      mcp.valid &&
+      (!mcp.hostAuthorizationRequired || hostContextAvailable),
   };
 }
 
@@ -119,6 +126,8 @@ export function formatDoctor(status) {
     `browser socket: ${mark(status.browserSocket)}`,
     `generated MCP config: ${mark(status.mcpValid)}${status.mcpConfig ? ` (${status.mcpConfig})` : ""}`,
     `cua_repl enabled: ${status.mcpEnabled ? "yes" : "no"}`,
+    `desktop authorization context: ${status.hostAuthorizationRequired ? (status.hostContextAvailable ? "available" : "missing") : "not required by generated launcher"}`,
+    `signed desktop authorization: ${status.authorizationError || (status.hostAuthorized === true ? "allowed" : status.hostAuthorized === false ? "denied" : "not checked; supply a session UUID")}`,
     `ready: ${status.ready ? "yes" : "no"}`,
   ].join("\n");
 }

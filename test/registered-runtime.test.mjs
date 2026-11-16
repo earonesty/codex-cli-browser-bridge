@@ -1,0 +1,28 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { RegistrationTracker } from "../src/registered-runtime.mjs";
+
+test("registers a root before exposing a successful start/resume response", async () => {
+  const registrations = [];
+  const tracker = new RegistrationTracker(async (id) => { await Promise.resolve(); registrations.push(id); });
+  tracker.outgoing({ id: 3, method: "thread/start", params: {} });
+  await tracker.incoming({ id: 3, result: { thread: { id: "root" } } });
+  assert.deepEqual(registrations, ["root"]);
+  assert.equal(tracker.roots.get("root"), "root");
+  tracker.outgoing({ id: 4, method: "thread/resume", params: { threadId: "root" } });
+  await tracker.incoming({ id: 4, result: { thread: { id: "child", sessionId: "root" } } });
+  assert.deepEqual(registrations, ["root"]);
+  assert.equal(tracker.roots.get("child"), "root");
+});
+
+test("does not register failed requests or unrelated replies", async () => {
+  const tracker = new RegistrationTracker(async () => { throw new Error("Unexpected registration"); });
+  tracker.outgoing({ id: 1, method: "thread/resume" });
+  await tracker.incoming({ id: 1, error: { message: "already has an active writer" } });
+  await tracker.incoming({ id: 2, result: { thread: { id: "unrelated" } } });
+});
+
+test("propagates registration failure instead of exposing an unregistered thread", async () => {
+  const tracker = new RegistrationTracker(async () => { throw new Error("Policy disabled"); });
+  await assert.rejects(tracker.incoming({ method: "thread/started", params: { thread: { id: "root" } } }), /Policy disabled/);
+});

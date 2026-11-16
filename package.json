@@ -1,10 +1,11 @@
 {
   "name": "codex-cli-browser-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unsupported Linux launcher for using the ChatGPT desktop browser bridge from Codex CLI",
   "type": "module",
   "bin": {
-    "codex-browser": "bin/codex-browser.mjs"
+    "codex-browser": "bin/codex-browser.mjs",
+    "codex-browser-patch": "bin/codex-browser-patch.mjs"
   },
   "scripts": {
     "test": "node --test"

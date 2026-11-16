@@ -2,6 +2,12 @@
 
 import { spawn } from "node:child_process";
 import process from "node:process";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { registrationRoot } from "../src/registration.mjs";
+import { runRegisteredCodex } from "../src/registered-runtime.mjs";
+import { discoverHostContext } from "../src/host-context.mjs";
+import { checkHostAuthorization } from "../src/host-authorization.mjs";
 import {
   bridgeStatus,
   formatDoctor,
@@ -13,11 +19,21 @@ const args = process.argv.slice(2);
 
 if (args[0] === "doctor") {
   const status = await bridgeStatus();
+  const sessionId = args[1] || process.env.CODEX_THREAD_ID;
+  try {
+    const context = await discoverHostContext();
+    status.hostContextAvailable = Boolean(context);
+    if (context && sessionId) status.hostAuthorized = await checkHostAuthorization(context.env, { sessionId, turnId: "cli-registration-diagnostic" });
+    status.ready = status.platform === "linux" && status.chatGptInstalled && status.browserSocket && status.mcpEnabled && status.mcpValid && status.hostAuthorized === true;
+  } catch (error) { status.ready = false; status.authorizationError = error.message; }
   process.stdout.write(`${formatDoctor(status)}\n`);
   process.exitCode = status.ready ? 0 : 1;
 } else if (args.includes("--help") || args.includes("-h") || args.length === 0) {
   process.stdout.write(`Usage:
   codex-browser doctor
+  codex-browser doctor [SESSION UUID]
+  codex-browser resume SESSION_UUID
+  codex-browser app-server
   codex-browser exec [CODEX OPTIONS] [PROMPT]
   codex-browser [CODEX COMMAND AND OPTIONS]
 
@@ -27,6 +43,12 @@ and then runs Codex CLI. It does not bundle or copy ChatGPT proprietary code.
 `);
 } else {
   process.stderr.write("codex-browser: experimental, unsupported bridge\n");
+
+  const configured = await fs.access(path.join(registrationRoot(), "policy.json")).then(() => true, () => false);
+  if (configured) {
+    try { await runRegisteredCodex(args); }
+    catch (error) { console.error(`codex-browser: ${error.message}`); process.exitCode = 1; }
+  } else {
 
   try {
     await startChatGptAndWait();
@@ -51,4 +73,5 @@ and then runs Codex CLI. It does not bundle or copy ChatGPT proprietary code.
     }
     process.exitCode = code ?? 1;
   });
+  }
 }

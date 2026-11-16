@@ -66,6 +66,65 @@ desktop once and verify that its browser/computer-use plugin is installed. If
 the browser socket is missing, verify that the ChatGPT Chrome extension is
 installed, enabled, and connected.
 
+## Explicit CLI session registration patch
+
+Desktop `26.1103.32239` requires browser authorization tied to a session that the
+desktop knows. A terminal/Slack-owned session cannot be resumed in the desktop at
+the same time, and copying its socket environment alone receives a signed denial.
+
+This branch adds an **opt-in desktop patch** and a registration wrapper. The patch
+resolves only explicitly registered CLI sessions to the desktop's authenticated
+account, then runs the original account and Work browser-policy checks. It leaves
+website approvals, authorization signatures, and conversation writer locks intact.
+
+Registration requires a private policy file under
+`~/.codex/browser/cli-registration/`, an exact account match, an approved executable
+path and SHA-256, and a session lease bound to a live same-user PID/start time and
+the current desktop instance. Leases last at most six hours. Changing the binary,
+account, or desktop instance invalidates the corresponding registration. Disabling
+the policy revokes registrations on the next authorization check.
+
+The patcher refuses builds whose authorization handler differs from its supported
+anchor. It prepares a separate ASAR with updated member integrity metadata; it
+does not modify the installed archive. Keep the original archive and manifest for
+rollback. A desktop update requires reviewing/preparing the patch again. Linux is
+the only supported platform; no signature enforcement or Electron fuse is disabled.
+
+```bash
+node bin/codex-browser-patch.mjs prepare
+# Quit the desktop app first. The installer verifies hashes, keeps a backup,
+# replaces the archive atomically, and refuses a different installed build.
+sudo node bin/codex-browser-patch.mjs install \
+  "$HOME/.local/state/codex-cli-browser-bridge/patch-manifest.json"
+# Reopen the desktop app.
+node bin/codex-browser-patch.mjs enable /absolute/path/to/native/codex
+codex-browser resume SESSION_UUID
+codex-browser doctor SESSION_UUID
+```
+
+Use a native Codex binary with group/world write permissions removed, not its npm
+JavaScript shim. `enable` reads only account identifiers from the CLI login; the
+desktop independently checks those identifiers against its own login. It never
+copies access tokens, refresh tokens, or private signing keys into registrations.
+
+For `codex-slack`, configure the Codex agent command to the absolute path of
+`bin/codex-browser.mjs`. Its `app-server` mode proxies ordinary JSON-RPC and writes
+the lease before delivering each successful root thread start/resume response.
+Lease files are removed on process exit. The native backend remains the sole
+conversation writer. New interactive sessions currently need to be created through
+the app-server flow first; interactive `resume` accepts an explicit session UUID.
+
+```bash
+node bin/codex-browser-patch.mjs disable
+# To remove the desktop patch, quit the desktop app and run:
+sudo node bin/codex-browser-patch.mjs restore \
+  "$HOME/.local/state/codex-cli-browser-bridge/patch-manifest.json"
+```
+
+`doctor SESSION_UUID` now verifies a real signed authorization response. A socket
+and generated config alone are no longer reported as ready. This diagnostic is an
+authorization preflight; a successful browser inventory is the final runtime test.
+
 ## Security
 
 This wrapper deliberately does not fake the signed-in user identity, extract
