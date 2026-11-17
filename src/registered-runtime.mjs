@@ -6,6 +6,7 @@ import path from "node:path";
 import { discoverHostContext, HOST_KEYS } from "./host-context.mjs";
 import { readPolicy, validatePinnedExecutable, registerSession, removeRegistration } from "./registration.mjs";
 import { prepareCodexArgs } from "./bridge.mjs";
+import { attachSharedBrowser } from "./shared-daemon.mjs";
 
 export class RegistrationTracker {
   constructor(register) { this.register = register; this.pending = new Map(); this.roots = new Map(); }
@@ -68,7 +69,10 @@ export async function runRegisteredCodex(args) {
     throw new Error("Use codex-browser resume <session UUID>, exec resume <session UUID> <prompt>, or app-server; new sessions must be created through the app-server registration proxy");
   }
   const childArgs = prepareCodexArgs(args);
-  if (!serverMode && !childArgs.includes("--no-daemon")) childArgs.unshift("--no-daemon");
+  if (!serverMode) {
+    if (args.includes("--no-daemon") || args.includes("--remote")) throw new Error("Interactive browser attachment uses the existing local shared daemon; omit --no-daemon and --remote");
+    await attachSharedBrowser(sessionId, context, executable);
+  }
   const child = spawn(executable, childArgs, { env, stdio: serverMode ? ["pipe", "pipe", "inherit"] : "inherit" });
   const leases = new Map();
   const register = async (id) => {
@@ -103,8 +107,7 @@ export async function runRegisteredCodex(args) {
       })();
       await Promise.race([Promise.all([upstream, downstream]), exited]);
     } else {
-      await register(sessionId);
-      process.stderr.write("codex-browser: session registered; desktop browser policy remains enforced\n");
+      process.stderr.write("codex-browser: browser attached to shared daemon; conversation ownership unchanged\n");
     }
     const result = await exited;
     process.exitCode = result.code ?? (result.signal ? 128 : 1);

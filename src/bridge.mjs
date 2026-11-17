@@ -54,7 +54,7 @@ async function hasBrowserSocket() {
   }
 }
 
-async function findGeneratedMcpConfig() {
+export async function findGeneratedMcpConfig() {
   const root = path.join(
     codexHome(),
     "plugins",

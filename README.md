@@ -102,6 +102,19 @@ codex-browser resume SESSION_UUID
 codex-browser doctor SESSION_UUID
 ```
 
+For an already-running terminal session, repair browser attachment in place:
+
+```bash
+codex-browser attach SESSION_UUID
+```
+
+This registers the actual shared daemon, updates only the generated CUA browser
+connection environment, clears parsed plugin metadata with `skills/list`'s public
+force-reload option, and invokes `config/mcpServer/reload` over the daemon's private
+WebSocket-over-Unix socket. It never resumes, unloads, or takes over a conversation.
+`resume` uses this attachment before joining the existing daemon; it does not add
+`--no-daemon`. Interactive attachment requires a running local shared daemon.
+
 Use a native Codex binary with group/world write permissions removed, not its npm
 JavaScript shim. `enable` reads only account identifiers from the CLI login; the
 desktop independently checks those identifiers against its own login. It never

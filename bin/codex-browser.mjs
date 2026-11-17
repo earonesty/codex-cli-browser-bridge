@@ -4,10 +4,11 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { registrationRoot } from "../src/registration.mjs";
+import { registrationRoot, readPolicy, validatePinnedExecutable } from "../src/registration.mjs";
 import { runRegisteredCodex, runUnregisteredBackend } from "../src/registered-runtime.mjs";
 import { discoverHostContext } from "../src/host-context.mjs";
 import { checkHostAuthorization } from "../src/host-authorization.mjs";
+import { attachSharedBrowser } from "../src/shared-daemon.mjs";
 import {
   bridgeStatus,
   formatDoctor,
@@ -28,10 +29,22 @@ if (args[0] === "doctor") {
   } catch (error) { status.ready = false; status.authorizationError = error.message; }
   process.stdout.write(`${formatDoctor(status)}\n`);
   process.exitCode = status.ready ? 0 : 1;
+} else if (args[0] === "attach") {
+  try {
+    const sessionId = args[1] || process.env.CODEX_THREAD_ID;
+    const policy = await readPolicy();
+    const context = await discoverHostContext();
+    if (!context) throw new Error("No live desktop browser context found");
+    await attachSharedBrowser(sessionId, context, await validatePinnedExecutable(policy.executables[0]));
+    const allowed = await checkHostAuthorization(context.env, { sessionId, turnId: "cli-attachment-diagnostic" });
+    console.log(`Shared daemon browser attachment: ${allowed ? "authorized" : "denied"}`);
+    if (!allowed) process.exitCode = 1;
+  } catch (error) { console.error(`codex-browser: ${error.message}`); process.exitCode = 1; }
 } else if (args.includes("--help") || args.includes("-h") || args.length === 0) {
   process.stdout.write(`Usage:
   codex-browser doctor
   codex-browser doctor [SESSION UUID]
+  codex-browser attach SESSION_UUID
   codex-browser resume SESSION_UUID
   codex-browser app-server
   codex-browser exec [CODEX OPTIONS] [PROMPT]
