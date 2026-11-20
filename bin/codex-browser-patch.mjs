@@ -21,8 +21,9 @@ try {
     const result = await installDesktopPatch(path.resolve(args[0]), { restore: command === "restore" });
     console.log(`${result.restored ? "Restored" : "Installed"} ${result.target}\nBackup: ${result.backup}\nSHA-256: ${result.sha256}\nReopen the desktop app before testing.`);
   } else if (command === "enable") {
-    const policy = await enableRegistration(args);
-    console.log(`Enabled account-bound CLI browser registration for ${policy.executables.length} pinned executable(s).`);
+    const followPath = args.length === 1 && args[0] === "--path";
+    const policy = await enableRegistration(followPath ? [] : args, { followPath });
+    console.log(`Enabled account-bound CLI browser registration for ${policy.executables.length} pinned executable(s)${followPath ? "; following codex on PATH" : ""}.`);
   } else if (command === "disable") {
     await disableRegistration(); console.log("Disabled CLI browser registration.");
   } else if (command === "register" || command === "probe") {
@@ -38,7 +39,7 @@ try {
     console.log(`Verified desktop authorization: ${allowed ? "allowed" : "denied"}`);
     if (!allowed) process.exitCode = 1;
   } else {
-    console.log("Usage: codex-browser-patch prepare [app.asar] [output-directory]\n       codex-browser-patch install <patch-manifest.json>   (sudo; desktop must be closed)\n       codex-browser-patch restore <patch-manifest.json>   (sudo; desktop must be closed)\n       codex-browser-patch enable <native-codex-executable> [...]\n       codex-browser-patch disable\n       codex-browser-patch register <session-UUID> <owning-codex-PID>\n       codex-browser-patch probe <session-UUID>");
+    console.log("Usage: codex-browser-patch prepare [app.asar] [output-directory]\n       codex-browser-patch install <patch-manifest.json>   (sudo; desktop must be closed)\n       codex-browser-patch restore <patch-manifest.json>   (sudo; desktop must be closed)\n       codex-browser-patch enable --path | <native-codex-executable> [...]\n       codex-browser-patch disable\n       codex-browser-patch register <session-UUID> <owning-codex-PID>\n       codex-browser-patch probe <session-UUID>");
     if (command) process.exitCode = 1;
   }
 } catch (error) { console.error(`codex-browser-patch: ${error.message}`); process.exitCode = 1; }

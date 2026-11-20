@@ -80,8 +80,9 @@ website approvals, authorization signatures, and conversation writer locks intac
 Registration requires a private policy file under
 `~/.codex/browser/cli-registration/`, an exact account match, an approved executable
 path and SHA-256, and a session lease bound to a live same-user PID/start time and
-the current desktop instance. Leases last at most six hours. Changing the binary,
-account, or desktop instance invalidates the corresponding registration. Disabling
+the current desktop instance. Leases last at most six hours. In fixed-pin mode, changing the binary invalidates the corresponding registration.
+PATH mode refreshes the pin before launch. Changing the account or desktop instance
+invalidates the corresponding registration in either mode. Disabling
 the policy revokes registrations on the next authorization check.
 
 The patcher refuses builds whose authorization handler differs from its supported
@@ -97,7 +98,7 @@ node bin/codex-browser-patch.mjs prepare
 sudo node bin/codex-browser-patch.mjs install \
   "$HOME/.local/state/codex-cli-browser-bridge/patch-manifest.json"
 # Reopen the desktop app.
-node bin/codex-browser-patch.mjs enable /absolute/path/to/native/codex
+node bin/codex-browser-patch.mjs enable --path
 codex-browser resume SESSION_UUID
 codex-browser doctor SESSION_UUID
 ```
@@ -115,8 +116,18 @@ WebSocket-over-Unix socket. It never resumes, unloads, or takes over a conversat
 `resume` uses this attachment before joining the existing daemon; it does not add
 `--no-daemon`. Interactive attachment requires a running local shared daemon.
 
-Use a native Codex binary with group/world write permissions removed, not its npm
-JavaScript shim. `enable` reads only account identifiers from the CLI login; the
+With `enable --path`, each launch uses the first `codex` executable on the launcher's
+`PATH`, including the native binary behind the official npm shim. Updates and version
+switches refresh the private policy with that binary's exact path and SHA-256 before
+starting a session. The binary must be owned by you and not world-writable; npm's
+group-write bit is removed automatically to satisfy desktop validation. Valid older
+pins remain available to existing sessions. Missing or unsupported PATH launchers
+produce an error instead of silently selecting another installation.
+
+For a fixed version, use `enable /absolute/path/to/native/codex` instead. That mode
+continues to reject changed binaries. The desktop still checks exact hashes, live
+process identities, and account/Work policy in both modes. `enable` reads only
+account identifiers from the CLI login; the
 desktop independently checks those identifiers against its own login. It never
 copies access tokens, refresh tokens, or private signing keys into registrations.
 

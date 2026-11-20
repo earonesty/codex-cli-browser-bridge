@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { registrationRoot, readPolicy, validatePinnedExecutable } from "../src/registration.mjs";
+import { registrationRoot, resolveRegisteredExecutable } from "../src/registration.mjs";
 import { runRegisteredCodex, runUnregisteredBackend } from "../src/registered-runtime.mjs";
 import { discoverHostContext } from "../src/host-context.mjs";
 import { checkHostAuthorization } from "../src/host-authorization.mjs";
@@ -32,10 +32,9 @@ if (args[0] === "doctor") {
 } else if (args[0] === "attach") {
   try {
     const sessionId = args[1] || process.env.CODEX_THREAD_ID;
-    const policy = await readPolicy();
     const context = await discoverHostContext();
     if (!context) throw new Error("No live desktop browser context found");
-    await attachSharedBrowser(sessionId, context, await validatePinnedExecutable(policy.executables[0]));
+    await attachSharedBrowser(sessionId, context, await resolveRegisteredExecutable());
     const allowed = await checkHostAuthorization(context.env, { sessionId, turnId: "cli-attachment-diagnostic" });
     console.log(`Shared daemon browser attachment: ${allowed ? "authorized" : "denied"}`);
     if (!allowed) process.exitCode = 1;

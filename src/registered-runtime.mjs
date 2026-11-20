@@ -1,10 +1,8 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
-import os from "node:os";
-import path from "node:path";
 import { discoverHostContext, HOST_KEYS } from "./host-context.mjs";
-import { readPolicy, validatePinnedExecutable, registerSession, removeRegistration } from "./registration.mjs";
+import { resolveRegisteredExecutable, registerSession, removeRegistration } from "./registration.mjs";
 import { prepareCodexArgs } from "./bridge.mjs";
 import { attachSharedBrowser } from "./shared-daemon.mjs";
 
@@ -38,15 +36,7 @@ export function unregisteredEnvironment(env) {
  * Sharing an approved executable does not share its account or browser context.
  */
 export async function runUnregisteredBackend(args) {
-  let executable = process.env.CODEX_BIN || "codex";
-  if (!process.env.CODEX_BIN) {
-    try {
-      const policy = await readPolicy(path.join(os.homedir(), ".codex"));
-      executable = await validatePinnedExecutable(policy.executables[0]);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-  }
+  const executable = process.env.CODEX_BIN || "codex";
   const child = spawn(executable, args, { env: unregisteredEnvironment(process.env), stdio: "inherit" });
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   const handlers = signals.map((signal) => { const handler = () => child.kill(signal); process.on(signal, handler); return [signal, handler]; });
@@ -57,10 +47,9 @@ export async function runUnregisteredBackend(args) {
 }
 
 export async function runRegisteredCodex(args) {
-  const policy = await readPolicy();
   const context = await discoverHostContext();
   if (!context) throw new Error("No live desktop browser context found; start the patched desktop app first");
-  const executable = await validatePinnedExecutable(policy.executables[0]);
+  const executable = await resolveRegisteredExecutable();
   const env = { ...process.env, ...context.env };
   const serverMode = args[0] === "app-server";
   const resumeIndex = args.indexOf("resume");

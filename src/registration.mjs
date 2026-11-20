@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileSha256 } from "./asar-patch.mjs";
+import { resolvePathCodex } from "./executable.mjs";
 import { resolveRegisteredCliExecutor } from "./registration-policy.mjs";
 
 export const codexHome = () => process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -38,7 +39,8 @@ export async function readPrincipal(home = codexHome()) {
   return { accountId, userId };
 }
 
-export async function enableRegistration(executables, { home = codexHome() } = {}) {
+export async function enableRegistration(executables, { home = codexHome(), followPath = false, env = process.env } = {}) {
+  if (followPath) executables = [await preparePathExecutable(env)];
   if (!executables.length) throw new Error("Specify at least one native Codex executable to pin");
   const principal = await readPrincipal(home);
   const pins = [];
@@ -47,7 +49,7 @@ export async function enableRegistration(executables, { home = codexHome() } = {
     if (!info.isFile() || (info.mode & 0o022) !== 0 || path.basename(executable) !== "codex") throw new Error("Only a non-group/world-writable native codex executable can be pinned");
     if (!pins.some((pin) => pin.path === executable)) pins.push({ path: executable, sha256: await fileSha256(executable) });
   }
-  const policy = { version: 1, enabled: true, ...principal, executables: pins };
+  const policy = { version: 1, enabled: true, ...principal, executables: pins, ...(followPath ? { followPath: true } : {}) };
   await writeJson(path.join(await privateRoot(home), "policy.json"), policy);
   return policy;
 }
@@ -65,6 +67,40 @@ export async function validatePinnedExecutable(pin) {
   if (executable !== pin.path || !info.isFile() || (info.mode & 0o022) !== 0
     || await fileSha256(executable) !== pin.sha256) throw new Error("Pinned Codex executable changed; refusing to launch it");
   return executable;
+}
+
+/** PATH mode is explicit operator consent to follow their selected CLI on every launch.
+ * The desktop still verifies the exact native path/hash and account for each lease.
+ */
+async function preparePathExecutable(env) {
+  const executable = await resolvePathCodex(env), info = await fs.stat(executable);
+  if (info.uid !== process.getuid() || !info.isFile() || (info.mode & 0o002) !== 0) {
+    throw new Error("PATH Codex must be owned by this user and not world-writable");
+  }
+  // npm installs group-writable binaries. Keep the desktop's existing strict check.
+  if (info.mode & 0o020) await fs.chmod(executable, info.mode & ~0o020);
+  return executable;
+}
+
+export async function resolveRegisteredExecutable({ home = codexHome(), env = process.env } = {}) {
+  const policy = await readPolicy(home);
+  if (!policy.followPath) return validatePinnedExecutable(policy.executables[0]);
+  const principal = await readPrincipal(home);
+  if (principal.accountId !== policy.accountId || principal.userId !== policy.userId) {
+    throw new Error("CLI account changed; explicitly enable registration for the intended account");
+  }
+  const executable = await preparePathExecutable(env);
+  const pin = { path: executable, sha256: await fileSha256(executable) };
+  if (!policy.executables.some(entry => entry.path === pin.path && entry.sha256 === pin.sha256)) {
+    // Preserve still-valid pins for existing sessions until their processes exit.
+    const retained = [];
+    for (const entry of policy.executables) {
+      if (entry.path === executable) continue;
+      try { await validatePinnedExecutable(entry); retained.push(entry); } catch {}
+    }
+    await writeJson(path.join(registrationRoot(home), "policy.json"), { ...policy, executables: [pin, ...retained] });
+  }
+  return validatePinnedExecutable(pin);
 }
 
 export async function disableRegistration(home = codexHome()) {

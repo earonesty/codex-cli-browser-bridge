@@ -77,3 +77,32 @@ test("registers a real child process and revokes it without taking a thread writ
     await assert.rejects(fs.stat(path.join(registrationRoot(home), `${sessionId}.json`)), { code: "ENOENT" });
   } finally { child.kill(); await exited; }
 });
+
+test("PATH mode refreshes exact hashes after updates and keeps valid pins for live sessions", async t => {
+  const { home, executable } = await fixture(t);
+  const { resolveRegisteredExecutable } = await import('../src/registration.mjs');
+  await fs.writeFile(executable, Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+  await fs.chmod(executable, 0o775);
+  const env = { PATH: home };
+  await enableRegistration([], { home, followPath: true, env });
+  assert.equal((await fs.stat(executable)).mode & 0o022, 0);
+  const first = (await readPolicy(home)).executables[0];
+  await fs.appendFile(executable, 'updated');
+  assert.equal(await resolveRegisteredExecutable({ home, env }), executable);
+  assert.notEqual((await readPolicy(home)).executables[0].sha256, first.sha256);
+  const next = path.join(home, 'next', 'codex'); await fs.mkdir(path.dirname(next));
+  await fs.writeFile(next, Buffer.from([0x7f, 0x45, 0x4c, 0x46]), { mode: 0o755 });
+  env.PATH = path.dirname(next);
+  assert.equal(await resolveRegisteredExecutable({ home, env }), next);
+  assert.equal((await readPolicy(home)).executables.length, 2);
+  await fs.unlink(executable); await fs.appendFile(next, 'another update');
+  await resolveRegisteredExecutable({ home, env });
+  assert.equal((await readPolicy(home)).executables.length, 1);
+  await fs.chmod(next, 0o777);
+  await assert.rejects(resolveRegisteredExecutable({ home, env }), /not world-writable/);
+  await fs.chmod(next, 0o755);
+  await fs.writeFile(path.join(home, 'auth.json'), JSON.stringify({ tokens: { access_token: token({ chatgpt_account_id: 'other-account', user_id: 'desktop-user' }) } }));
+  await assert.rejects(resolveRegisteredExecutable({ home, env }), /account changed/);
+  await disableRegistration(home);
+  await assert.rejects(resolveRegisteredExecutable({ home, env }), /not enabled/);
+});
