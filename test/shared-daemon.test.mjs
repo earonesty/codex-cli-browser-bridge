@@ -6,8 +6,30 @@ import path from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { WebSocketServer } from "ws";
-import { withBrowserHostContext, reloadSharedMcp } from "../src/shared-daemon.mjs";
+import { withBrowserHostContext, reloadSharedMcp, ensureSharedDaemonPin } from "../src/shared-daemon.mjs";
+import { enableRegistration, readPolicy, disableRegistration } from "../src/registration.mjs";
 import { HOST_KEYS } from "../src/host-context.mjs";
+
+test("PATH policy follows managed daemon updates but fixed policies and outside binaries stay restricted", async t => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "browser-daemon-pin-"));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const claims = Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "account", user_id: "user" } })).toString("base64url");
+  await fs.writeFile(path.join(home, "auth.json"), JSON.stringify({ tokens: { access_token: `fixture.${claims}.fixture` } }));
+  const original = path.join(home, "codex");
+  const daemon = path.join(home, "packages/app-server-daemon/releases/0.171.0-linux/bin/codex");
+  await fs.mkdir(path.dirname(daemon), { recursive: true });
+  for (const filename of [original, daemon]) await fs.writeFile(filename, Buffer.from([0x7f, 0x45, 0x4c, 0x46]), { mode: 0o755 });
+  await enableRegistration([original], { home });
+  await assert.rejects(ensureSharedDaemonPin(daemon, home), /not in the browser policy/);
+  await enableRegistration([], { home, followPath: true, env: { PATH: home } });
+  await assert.rejects(ensureSharedDaemonPin(path.join(home, "untrusted/codex"), home), /not in the browser policy/);
+  assert.equal(await ensureSharedDaemonPin(daemon, home), daemon);
+  assert.equal((await readPolicy(home)).executables.length, 2);
+  await fs.appendFile(daemon, "tampered");
+  await assert.rejects(ensureSharedDaemonPin(daemon, home), /refusing to launch/);
+  await disableRegistration(home);
+  await assert.rejects(ensureSharedDaemonPin(daemon, home), /not enabled/);
+});
 
 test("refreshes only the generated browser connection context", () => {
   const original = { mcpServers: { cua_repl: { command: "/fixture/node_repl", args: ["original"], env_vars: HOST_KEYS,

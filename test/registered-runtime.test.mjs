@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RegistrationTracker, unregisteredEnvironment } from "../src/registered-runtime.mjs";
+import { RegistrationTracker, unregisteredEnvironment, runRegisteredCodex } from "../src/registered-runtime.mjs";
+
+test("desktop outage keeps app-server available without browser delegation", async () => {
+  const calls = [];
+  await runRegisteredCodex(["app-server"], { discover: async () => null, plainBackend: async args => calls.push(args) });
+  assert.deepEqual(calls, [["app-server"]]);
+  await assert.rejects(runRegisteredCodex(["resume", "session"], {
+    discover: async () => null, plainBackend: async () => assert.fail("interactive launch must require desktop"),
+  }), /No live desktop/);
+});
 
 test("registers a root before exposing a successful start/resume response", async () => {
   const registrations = [];

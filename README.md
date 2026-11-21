@@ -85,6 +85,10 @@ PATH mode refreshes the pin before launch. Changing the account or desktop insta
 invalidates the corresponding registration in either mode. Disabling
 the policy revokes registrations on the next authorization check.
 
+PATH mode also refreshes the native binary pin when attaching to a newer managed
+shared daemon under the same Codex home's `packages/app-server-daemon/releases/`
+directory. Fixed-pin mode continues to require explicitly approved binaries.
+
 The patcher refuses builds whose authorization handler differs from its supported
 anchor. It prepares a separate ASAR with updated member integrity metadata; it
 does not modify the installed archive. Keep the original archive and manifest for
@@ -140,6 +144,11 @@ the app-server flow first; interactive `resume` accepts an explicit session UUID
 An alternate `CODEX_HOME` without its own registration policy runs a plain
 app-server with its original environment and browser delegation removed. This
 keeps isolated agents, such as GitHub triage, separate from the primary account.
+
+If the desktop is closed, `app-server` starts an ordinary Codex backend with browser
+delegation removed. Slack can keep responding without the desktop. A later backend
+launch discovers the desktop again; interactive browser attachment still requires
+a live desktop and a valid registration.
 
 ```bash
 node bin/codex-browser-patch.mjs disable

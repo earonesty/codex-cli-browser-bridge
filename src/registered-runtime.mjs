@@ -46,12 +46,16 @@ export async function runUnregisteredBackend(args) {
   } finally { for (const [signal, handler] of handlers) process.removeListener(signal, handler); }
 }
 
-export async function runRegisteredCodex(args) {
-  const context = await discoverHostContext();
-  if (!context) throw new Error("No live desktop browser context found; start the patched desktop app first");
+export async function runRegisteredCodex(args, { discover = discoverHostContext, plainBackend = runUnregisteredBackend } = {}) {
+  const serverMode = args[0] === "app-server";
+  const context = await discover();
+  if (!context) {
+    if (!serverMode) throw new Error("No live desktop browser context found; start the patched desktop app first");
+    process.stderr.write("codex-browser: desktop unavailable; starting Codex without browser delegation\n");
+    return plainBackend(args);
+  }
   const executable = await resolveRegisteredExecutable();
   const env = { ...process.env, ...context.env };
-  const serverMode = args[0] === "app-server";
   const resumeIndex = args.indexOf("resume");
   const sessionId = resumeIndex >= 0 ? args[resumeIndex + 1] : null;
   if (!serverMode && !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sessionId ?? "")) {

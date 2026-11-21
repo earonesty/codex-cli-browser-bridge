@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import WebSocket from "ws";
 import { HOST_KEYS } from "./host-context.mjs";
-import { codexHome, registerSession, readPolicy } from "./registration.mjs";
+import { codexHome, registerSession, readPolicy, resolveRegisteredExecutable, validatePinnedExecutable } from "./registration.mjs";
 import { findGeneratedMcpConfig } from "./bridge.mjs";
 
 export function withBrowserHostContext(config, env) {
@@ -24,6 +24,25 @@ export async function sharedDaemonPid(home = codexHome()) {
   const ticks = stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/)[19];
   if (ticks !== String(metadata.processIdentity?.startTicks)) throw new Error("Shared daemon identity changed; retry attachment");
   return metadata.pid;
+}
+
+export async function ensureSharedDaemonPin(actual, home = codexHome()) {
+  const policy = await readPolicy(home);
+  const pin = policy.executables.find(entry => entry.path === actual);
+  if (pin) return validatePinnedExecutable(pin);
+  // PATH-following consent also covers the CLI's managed update installation.
+  // Only accept its native binary in this home's release tree; fixed pins stay fixed.
+  const releases = path.join(home, "packages", "app-server-daemon", "releases");
+  const relative = path.relative(releases, actual).split(path.sep);
+  if (!policy.followPath || relative.length !== 3 || relative[0] === ".."
+      || relative[1] !== "bin" || relative[2] !== "codex") {
+    throw new Error("Shared daemon executable is not in the browser policy");
+  }
+  const realReleases = await fs.realpath(releases);
+  if (await fs.realpath(actual) !== actual || !actual.startsWith(`${realReleases}${path.sep}`)) {
+    throw new Error("Shared daemon executable is outside the managed release tree");
+  }
+  return resolveRegisteredExecutable({ home, env: { ...process.env, PATH: path.dirname(actual) } });
 }
 
 export async function reloadSharedMcp(_executable, env = process.env) {
@@ -70,8 +89,8 @@ export async function reloadSharedMcp(_executable, env = process.env) {
 export async function attachSharedBrowser(sessionId, context, executable, { home = codexHome() } = {}) {
   const pid = await sharedDaemonPid(home);
   // Check the daemon binary against the approved policy before changing config.
-  const policy = await readPolicy(home), actual = await fs.realpath(`/proc/${pid}/exe`);
-  if (!policy.executables.some((entry) => entry.path === actual)) throw new Error("Shared daemon executable is not in the browser policy");
+  const actual = await fs.realpath(`/proc/${pid}/exe`);
+  await ensureSharedDaemonPin(actual, home);
   const lease = await registerSession(sessionId, pid, context, { home });
   const filename = await findGeneratedMcpConfig();
   if (!filename) throw new Error("No generated CUA server config found");
